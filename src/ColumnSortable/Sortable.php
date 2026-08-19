@@ -34,7 +34,7 @@ trait Sortable
             $defaultParameters = $this->getDefaultSortable();
         }
 
-        if ( ! is_null($defaultParameters)) {
+        if (! is_null($defaultParameters)) {
             $defaultSortArray = $this->formatToParameters($defaultParameters);
             if (config('columnsortable.allow_request_modification', true) && ! empty($defaultSortArray)) {
                 request()->merge($defaultSortArray);
@@ -56,7 +56,7 @@ trait Sortable
     {
         if (config('columnsortable.default_first_column', false)) {
             $sortBy = Arr::first($this->sortable);
-            if ( ! is_null($sortBy)) {
+            if (! is_null($sortBy)) {
                 return [$sortBy => config('columnsortable.default_direction', 'asc')];
             }
         }
@@ -77,6 +77,12 @@ trait Sortable
     {
         $model = $this;
 
+        // 현재 모델 기준
+        $keyName  = $this->getKeyName();
+        $keyTable = $this->getTable();
+        $defaultDirection = config('columnsortable.default_direction', 'asc');
+        $defaultSortTablePrefix = '';
+
         list($column, $direction) = $this->parseParameters($sortParameters);
 
         if (is_null($column)) {
@@ -84,7 +90,7 @@ trait Sortable
         }
 
         $explodeResult = SortableLink::explodeSortParameter($column);
-        if ( ! empty($explodeResult)) {
+        if (!empty($explodeResult)) {
             $relationName = $explodeResult[0];
             $column       = $explodeResult[1];
 
@@ -100,20 +106,40 @@ trait Sortable
             $model = $relation->getRelated();
         }
 
-        if (method_exists($model, Str::camel($column).'Sortable')) {
-            return call_user_func_array([$model, Str::camel($column).'Sortable'], [$query, $direction]);
-        }
-
-        if (isset($model->sortableAs) && in_array($column, $model->sortableAs)) {
+        if (method_exists($model, Str::camel($column) . 'Sortable')) {
+            $query = call_user_func_array(
+                [$model, Str::camel($column) . 'Sortable'],
+                [$query, $direction]
+            );
+            $defaultSortTablePrefix = $keyTable . '.';
+        } elseif (isset($model->sortableAs) && in_array($column, $model->sortableAs)) {
             $query = $query->orderBy($column, $direction);
         } elseif ($this->columnExists($model, $column)) {
-            $column = $model->getTable().'.'.$column;
-            $query  = $query->orderBy($column, $direction);
+            $query = $query->orderBy(
+                $model->getTable() . '.' . $column,
+                $direction
+            );
+            $defaultSortTablePrefix = $keyTable . '.';
+        }
+
+        if (!empty($this->defaultSortable)) {
+            foreach ($this->defaultSortable as $tmpSortKey => $tmpSortOrder) {
+                if ($column !== $tmpSortKey) {
+                    $query = $query->orderBy(
+                        $defaultSortTablePrefix . $tmpSortKey,
+                        $tmpSortOrder
+                    );
+                }
+            }
+        } elseif ($column !== $keyName) {
+            $query = $query->orderBy(
+                $defaultSortTablePrefix . $keyName,
+                $defaultDirection
+            );
         }
 
         return $query;
     }
-
 
     /**
      * @param array $parameters
@@ -128,7 +154,7 @@ trait Sortable
         }
 
         $direction = Arr::get($parameters, 'direction', []);
-        if ( ! in_array(strtolower($direction), ['asc', 'desc'])) {
+        if (! in_array(strtolower($direction), ['asc', 'desc'])) {
             $direction = config('columnsortable.default_direction', 'asc');
         }
 
@@ -150,8 +176,8 @@ trait Sortable
         $parentTable  = $relation->getParent()->getTable();
 
         if ($parentTable === $relatedTable) {
-            $query       = $query->from($parentTable.' as parent_'.$parentTable);
-            $parentTable = 'parent_'.$parentTable;
+            $query       = $query->from($parentTable . ' as parent_' . $parentTable);
+            $parentTable = 'parent_' . $parentTable;
             $relation->getParent()->setTable($parentTable);
         }
 
@@ -219,6 +245,6 @@ trait Sortable
     {
         $joinType = config('columnsortable.join_type', 'leftJoin');
 
-        return $query->select($parentTable.'.*')->{$joinType}($relatedTable, $parentPrimaryKey, '=', $relatedPrimaryKey);
+        return $query->select($parentTable . '.*')->{$joinType}($relatedTable, $parentPrimaryKey, '=', $relatedPrimaryKey);
     }
 }
